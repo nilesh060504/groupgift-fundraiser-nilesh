@@ -18,7 +18,7 @@ export default function ProgressBar({ collected, target, size = 'md', showLabel 
                         {percentage}% funded
                     </span>
                     <span className="text-xs text-surface-400 dark:text-surface-500">
-                        ${collected.toLocaleString()} / ${target.toLocaleString()}
+                        ₹{collected.toLocaleString()} / ₹{target.toLocaleString()}
                     </span>
                 </div>
             )}

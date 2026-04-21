@@ -146,9 +146,9 @@ export default function LandingPage() {
                             <div className="relative glass rounded-3xl p-4 sm:p-8 shadow-2xl">
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                     {[
-                                        { label: "Sarah's Birthday", amount: '$1,125', target: '$1,500', pct: 75 },
-                                        { label: "Team Farewell", amount: '$500', target: '$500', pct: 100 },
-                                        { label: "Wedding Gift", amount: '$780', target: '$2,000', pct: 39 },
+                                        { label: "Sarah's Birthday", amount: '₹1,125', target: '₹1,500', pct: 75 },
+                                        { label: "Team Farewell", amount: '₹500', target: '₹500', pct: 100 },
+                                        { label: "Wedding Gift", amount: '₹780', target: '₹2,000', pct: 39 },
                                     ].map((card, i) => (
                                         <motion.div
                                             key={i}

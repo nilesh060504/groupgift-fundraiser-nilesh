@@ -2,11 +2,13 @@ import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTheme } from '../context/ThemeContext';
+import { useAuth } from '../context/AuthContext';
 import { HiOutlineSun, HiOutlineMoon, HiOutlineMenu, HiOutlineX } from 'react-icons/hi';
 import { HiGift } from 'react-icons/hi2';
 
 export default function Navbar() {
     const { darkMode, toggleDarkMode } = useTheme();
+    const { user, logout } = useAuth();
     const [mobileOpen, setMobileOpen] = useState(false);
     const location = useLocation();
 
@@ -60,11 +62,19 @@ export default function Navbar() {
                         </motion.button>
 
                         <Link
-                            to="/create"
+                            to={user ? "/create" : "/login"}
                             className="hidden sm:inline-flex items-center gap-2 px-4 py-2 gradient-bg text-white text-sm font-semibold rounded-xl shadow-lg shadow-primary-500/25 hover:shadow-primary-500/40 transition-all duration-200"
                         >
-                            Create Fund
+                            {user ? 'Create Fund' : 'Login'}
                         </Link>
+                        {user && (
+                            <button
+                                onClick={logout}
+                                className="hidden sm:inline-flex items-center px-3 py-2 bg-surface-100 dark:bg-surface-800 text-surface-700 dark:text-surface-300 text-sm font-medium rounded-xl"
+                            >
+                                Logout
+                            </button>
+                        )}
 
                         {/* Mobile menu button */}
                         <button
@@ -101,12 +111,23 @@ export default function Navbar() {
                                 </Link>
                             ))}
                             <Link
-                                to="/create"
+                                to={user ? "/create" : "/login"}
                                 onClick={() => setMobileOpen(false)}
                                 className="block text-center px-4 py-2.5 gradient-bg text-white text-sm font-semibold rounded-xl mt-2"
                             >
-                                Create Fund
+                                {user ? 'Create Fund' : 'Login'}
                             </Link>
+                            {user && (
+                                <button
+                                    onClick={() => {
+                                        logout();
+                                        setMobileOpen(false);
+                                    }}
+                                    className="block w-full text-center px-4 py-2.5 bg-surface-100 dark:bg-surface-800 text-surface-700 dark:text-surface-300 text-sm font-semibold rounded-xl mt-2"
+                                >
+                                    Logout
+                                </button>
+                            )}
                         </div>
                     </motion.div>
                 )}

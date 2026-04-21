@@ -1,89 +1,114 @@
-import { createContext, useContext, useState, useCallback } from 'react';
-import { mockFunds, mockContributions, mockActivities } from '../services/api';
+import { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
+import {
+    fetchFunds,
+    fetchFundById,
+    createFundAPI,
+    contributeAPI,
+    fetchContributionsForFund,
+    fetchActivitiesForFund,
+} from '../services/api';
 
 const FundContext = createContext();
 
 export function FundProvider({ children }) {
-    const [funds, setFunds] = useState(mockFunds);
-    const [contributions, setContributions] = useState(mockContributions);
-    const [activities, setActivities] = useState(mockActivities);
+    const [funds, setFunds] = useState([]);
+    const [fundDetails, setFundDetails] = useState({});
+    const [contributionsByFund, setContributionsByFund] = useState({});
+    const [activitiesByFund, setActivitiesByFund] = useState({});
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
+
+    const loadFunds = useCallback(async (search = '') => {
+        try {
+            setLoading(true);
+            const response = await fetchFunds({ page: 1, limit: 100, search });
+            setFunds(response.data.items);
+            setError(null);
+        } catch (err) {
+            setError(err.response?.data?.message || 'Failed to load funds');
+        } finally {
+            setLoading(false);
+        }
+    }, []);
 
     const getFundById = useCallback((id) => {
-        return funds.find(f => f.id === id);
-    }, [funds]);
+        return fundDetails[id] || funds.find(f => f.id === id);
+    }, [fundDetails, funds]);
 
     const getContributionsForFund = useCallback((fundId) => {
-        return contributions.filter(c => c.fundId === fundId);
-    }, [contributions]);
+        return contributionsByFund[fundId] || [];
+    }, [contributionsByFund]);
 
     const getActivitiesForFund = useCallback((fundId) => {
-        return activities.filter(a => a.fundId === fundId);
-    }, [activities]);
+        return activitiesByFund[fundId] || [];
+    }, [activitiesByFund]);
 
-    const createFund = useCallback((fundData) => {
-        const newFund = {
-            id: `fund_${Date.now()}`,
-            ...fundData,
-            collected: 0,
-            contributors: 0,
-            createdAt: new Date().toISOString(),
-            status: 'active',
-        };
-        setFunds(prev => [newFund, ...prev]);
-        return newFund;
+    const loadFundDetails = useCallback(async (fundId) => {
+        try {
+            const [fundRes, contribRes, activityRes] = await Promise.all([
+                fetchFundById(fundId),
+                fetchContributionsForFund(fundId),
+                fetchActivitiesForFund(fundId),
+            ]);
+
+            setFundDetails(prev => ({ ...prev, [fundId]: fundRes.data }));
+            setContributionsByFund(prev => ({ ...prev, [fundId]: contribRes.data }));
+            setActivitiesByFund(prev => ({ ...prev, [fundId]: activityRes.data }));
+
+            setFunds(prev => {
+                const existing = prev.some(f => f.id === fundRes.data.id);
+                if (!existing) return [fundRes.data, ...prev];
+                return prev.map(f => (f.id === fundRes.data.id ? fundRes.data : f));
+            });
+        } catch (err) {
+            setError(err.response?.data?.message || 'Failed to load fund details');
+            throw err;
+        }
     }, []);
 
-    const addContribution = useCallback((fundId, amount, contributorName) => {
-        const contribution = {
-            id: `contrib_${Date.now()}`,
-            fundId,
-            name: contributorName,
-            amount: parseFloat(amount),
-            date: new Date().toISOString(),
-            avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(contributorName)}&background=6366f1&color=fff`,
-        };
+    const createFund = useCallback(async (fundData) => {
+        const response = await createFundAPI(fundData);
+        setFunds(prev => [response.data, ...prev]);
+        setFundDetails(prev => ({ ...prev, [response.data.id]: response.data }));
+        return response.data;
+    }, []);
 
-        setContributions(prev => [contribution, ...prev]);
-
-        const activity = {
-            id: `act_${Date.now()}`,
-            fundId,
-            type: 'contribution',
-            message: `${contributorName} contributed $${parseFloat(amount).toFixed(2)}`,
-            date: new Date().toISOString(),
-        };
-        setActivities(prev => [activity, ...prev]);
-
-        setFunds(prev => prev.map(f => {
-            if (f.id === fundId) {
-                const newCollected = f.collected + parseFloat(amount);
-                return {
-                    ...f,
-                    collected: newCollected,
-                    contributors: f.contributors + 1,
-                    status: newCollected >= f.target ? 'completed' : 'active',
-                };
-            }
-            return f;
+    const addContribution = useCallback(async (fundId, payload) => {
+        const response = await contributeAPI(fundId, payload);
+        setContributionsByFund(prev => ({
+            ...prev,
+            [fundId]: [response.data, ...(prev[fundId] || [])],
         }));
+        await loadFundDetails(fundId);
+        return response.data;
+    }, [loadFundDetails]);
 
-        return contribution;
-    }, []);
+    useEffect(() => {
+        loadFunds();
+    }, [loadFunds]);
+
+    // Flat list of all contributions across all funds (for Analytics)
+    const allContributions = useMemo(() => {
+        return Object.values(contributionsByFund).flat();
+    }, [contributionsByFund]);
+
+    const value = {
+        funds,
+        contributions: allContributions,
+        loading,
+        error,
+        setLoading,
+        loadFunds,
+        loadFundDetails,
+        getFundById,
+        getContributionsForFund,
+        getActivitiesForFund,
+        createFund,
+        addContribution,
+    };
 
     return (
-        <FundContext.Provider value={{
-            funds,
-            contributions,
-            activities,
-            loading,
-            setLoading,
-            getFundById,
-            getContributionsForFund,
-            getActivitiesForFund,
-            createFund,
-            addContribution,
-        }}>
+        <FundContext.Provider value={value}>
             {children}
         </FundContext.Provider>
     );

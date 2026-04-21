@@ -97,7 +97,7 @@ export default function Analytics() {
                             <BarChart data={barData}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                                 <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#94a3b8" />
-                                <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" tickFormatter={(v) => `$${v}`} />
+                                <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" tickFormatter={(v) => `₹${v}`} />
                                 <Tooltip content={<CustomTooltip />} />
                                 <Bar dataKey="amount" fill="url(#barGradient)" radius={[6, 6, 0, 0]} />
                                 <defs>

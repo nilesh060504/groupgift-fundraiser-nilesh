@@ -6,25 +6,38 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useEffect, useState } from 'react';
 import { HiOutlineClipboard, HiOutlineUserGroup, HiOutlineCurrencyDollar, HiOutlineClock, HiOutlineLink, HiOutlineArrowLeft } from 'react-icons/hi';
 import { useFunds } from '../context/FundContext';
+import { useAuth } from '../context/AuthContext';
+import { sendGroupInvitesAPI } from '../services/api';
 import ProgressBar from '../components/ProgressBar';
 import ContributorList from '../components/ContributorList';
 import { DetailSkeleton } from '../components/Skeleton';
-import { formatCurrency, timeAgo, getDaysRemaining, calculateProgress, copyToClipboard, generateShareLink, getStatusColor } from '../utils/helpers';
+import { formatCurrency, timeAgo, getDaysRemaining, copyToClipboard, generateShareLink, getStatusColor } from '../utils/helpers';
 
 export default function FundDetails() {
     const { id } = useParams();
     const navigate = useNavigate();
-    const { getFundById, getContributionsForFund, getActivitiesForFund } = useFunds();
+    const { getFundById, getContributionsForFund, getActivitiesForFund, loadFundDetails } = useFunds();
+    const { user } = useAuth();
     const [showQR, setShowQR] = useState(false);
+    const [sendingInvites, setSendingInvites] = useState(false);
+    const [loading, setLoading] = useState(true);
     const fund = getFundById(id);
     const contribs = getContributionsForFund(id);
     const activities = getActivitiesForFund(id);
+
+    useEffect(() => {
+        loadFundDetails(id).finally(() => setLoading(false));
+    }, [id, loadFundDetails]);
 
     useEffect(() => {
         if (fund && fund.status === 'completed') {
             setTimeout(() => confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } }), 500);
         }
     }, [fund]);
+
+    if (loading && !fund) {
+        return <div className="min-h-screen pt-24 pb-12 px-4"><div className="max-w-4xl mx-auto"><DetailSkeleton /></div></div>;
+    }
 
     if (!fund) {
         return <div className="min-h-screen pt-24 pb-12 px-4"><div className="max-w-4xl mx-auto"><DetailSkeleton /></div></div>;
@@ -33,7 +46,22 @@ export default function FundDetails() {
     const remaining = Math.max(0, fund.target - fund.collected);
     const daysLeft = getDaysRemaining(fund.deadline);
     const shareLink = generateShareLink(fund.id);
+    const qrValue = fund.upiLink || shareLink;
     const handleCopyLink = () => { copyToClipboard(shareLink); toast.success('Invite link copied!'); };
+    const isOwner = user && fund && user.id === fund.createdBy;
+
+    const handleSendGroupInvites = async () => {
+        try {
+            setSendingInvites(true);
+            const res = await sendGroupInvitesAPI(fund.id);
+            toast.success(`Sent payment links to ${res.data?.sentTo?.length || 0} members`);
+            await loadFundDetails(fund.id);
+        } catch (err) {
+            toast.error(err.response?.data?.message || 'Failed to send group invites');
+        } finally {
+            setSendingInvites(false);
+        }
+    };
 
     const stats = [
         { icon: <HiOutlineCurrencyDollar className="w-5 h-5" />, label: 'Raised', value: formatCurrency(fund.collected), color: 'text-primary-600 dark:text-primary-400' },
@@ -80,10 +108,31 @@ export default function FundDetails() {
                         </button>
                     </div>
 
+                    {fund.upiId && (
+                        <p className="mt-4 text-sm text-surface-500 dark:text-surface-400">
+                            UPI ID: <span className="font-medium text-surface-700 dark:text-surface-200">{fund.upiId}</span>
+                        </p>
+                    )}
+                    {fund.members?.length > 0 && (
+                        <div className="mt-4 text-sm text-surface-500 dark:text-surface-400">
+                            <p className="font-medium text-surface-700 dark:text-surface-200 mb-1">Fund group members: {fund.members.length}</p>
+                            <p>Selected contributors: {fund.selectedContributorEmails?.length || 0}</p>
+                        </div>
+                    )}
+                    {isOwner && (
+                        <button
+                            onClick={handleSendGroupInvites}
+                            disabled={sendingInvites}
+                            className="mt-4 w-full sm:w-auto px-5 py-2.5 bg-primary-600 text-white rounded-xl font-semibold disabled:opacity-60"
+                        >
+                            {sendingInvites ? 'Sending payment links...' : 'Send Payment Links to Selected Members'}
+                        </button>
+                    )}
+
                     {showQR && (
                         <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="mt-6 flex flex-col items-center p-6 bg-surface-50 dark:bg-surface-900/50 rounded-xl">
-                            <div className="bg-white p-4 rounded-xl shadow-sm mb-3"><QRCodeSVG value={shareLink} size={160} level="H" /></div>
-                            <p className="text-sm text-surface-500">Scan to contribute</p>
+                            <div className="bg-white p-4 rounded-xl shadow-sm mb-3"><QRCodeSVG value={qrValue} size={160} level="H" /></div>
+                            <p className="text-sm text-surface-500">Scan to pay via UPI</p>
                         </motion.div>
                     )}
                 </motion.div>

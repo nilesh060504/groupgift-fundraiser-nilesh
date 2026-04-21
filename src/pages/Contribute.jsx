@@ -1,25 +1,42 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
-import confetti from 'canvas-confetti';
-import { HiOutlineCurrencyDollar, HiOutlineUser, HiOutlineCreditCard, HiOutlineArrowLeft, HiOutlineCheck } from 'react-icons/hi';
+import { HiOutlineCurrencyDollar, HiOutlineUser, HiOutlineArrowLeft, HiOutlineCheck } from 'react-icons/hi';
 import { useFunds } from '../context/FundContext';
+import { useAuth } from '../context/AuthContext';
+import { sendPaymentEmailAPI } from '../services/api';
 import { formatCurrency, calculateProgress } from '../utils/helpers';
 
 export default function Contribute() {
     const { id } = useParams();
     const navigate = useNavigate();
-    const { getFundById, addContribution } = useFunds();
+    const { getFundById, addContribution, loadFundDetails } = useFunds();
+    const { user, isAuthenticated } = useAuth();
 
     const [name, setName] = useState('');
     const [amount, setAmount] = useState('');
-    const [paymentMethod, setPaymentMethod] = useState('card');
+    const [transactionId, setTransactionId] = useState('');
+    const [screenshotFile, setScreenshotFile] = useState(null);
     const [processing, setProcessing] = useState(false);
     const [success, setSuccess] = useState(false);
     const [errors, setErrors] = useState({});
+    const [loading, setLoading] = useState(true);
+    const [sendingLink, setSendingLink] = useState(false);
 
     const fund = getFundById(id);
+
+    useEffect(() => {
+        loadFundDetails(id).finally(() => setLoading(false));
+    }, [id, loadFundDetails]);
+
+    if (loading && !fund) {
+        return (
+            <div className="min-h-screen pt-24 pb-12 px-4 flex items-center justify-center">
+                <p className="text-surface-500">Loading fund...</p>
+            </div>
+        );
+    }
 
     if (!fund) {
         return (
@@ -31,6 +48,7 @@ export default function Contribute() {
 
     const remaining = Math.max(0, fund.target - fund.collected);
     const progress = calculateProgress(fund.collected, fund.target);
+    const shareAmount = fund.shareAmount || Number((fund.target / Math.max(fund.expectedMembers || 1, 1)).toFixed(2));
 
     const presetAmounts = [10, 25, 50, 100];
 
@@ -38,6 +56,7 @@ export default function Contribute() {
         const newErrors = {};
         if (!name.trim()) newErrors.name = 'Name is required';
         if (!amount || parseFloat(amount) <= 0) newErrors.amount = 'Enter a valid amount';
+        if (!transactionId.trim()) newErrors.transactionId = 'Transaction ID is required';
         if (parseFloat(amount) > remaining) newErrors.amount = `Maximum contribution is ${formatCurrency(remaining)}`;
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
@@ -47,23 +66,45 @@ export default function Contribute() {
         e.preventDefault();
         if (!validate()) return;
 
-        setProcessing(true);
-        // Simulate payment processing
-        await new Promise(resolve => setTimeout(resolve, 1500));
-
-        addContribution(id, amount, name);
-        setProcessing(false);
-        setSuccess(true);
-
-        toast.success('Contribution successful! 🎉');
-        confetti({ particleCount: 80, spread: 60, origin: { y: 0.7 } });
+        try {
+            setProcessing(true);
+            await addContribution(id, {
+                amount,
+                contributorName: name,
+                transactionId,
+                screenshotFile,
+            });
+            setSuccess(true);
+            toast.success('Payment recorded and receipt emailed.');
+        } catch (err) {
+            toast.error(err.response?.data?.message || 'Failed to submit contribution');
+        } finally {
+            setProcessing(false);
+        }
     };
 
-    const paymentMethods = [
-        { id: 'card', label: 'Credit Card', icon: '💳' },
-        { id: 'paypal', label: 'PayPal', icon: '🅿️' },
-        { id: 'applepay', label: 'Apple Pay', icon: '🍎' },
-    ];
+    const handlePhonePePay = async () => {
+        if (!isAuthenticated) {
+            toast.error('Please login to get your payment email');
+            navigate('/login', { state: { from: `/contribute/${id}` } });
+            return;
+        }
+
+        try {
+            setSendingLink(true);
+            const res = await sendPaymentEmailAPI(id);
+            const phonePeLink = res.data?.phonePeLink;
+            if (phonePeLink) {
+                window.location.href = phonePeLink;
+            }
+            toast.success(`Payment link sent to ${res.data?.email || user?.email}`);
+            setAmount(String(res.data?.shareAmount || shareAmount));
+        } catch (err) {
+            toast.error(err.response?.data?.message || 'Failed to send payment email');
+        } finally {
+            setSendingLink(false);
+        }
+    };
 
     if (success) {
         return (
@@ -72,9 +113,9 @@ export default function Contribute() {
                     <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.2, type: 'spring' }} className="w-20 h-20 mx-auto mb-6 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
                         <HiOutlineCheck className="w-10 h-10 text-emerald-500" />
                     </motion.div>
-                    <h2 className="text-2xl font-bold text-surface-900 dark:text-white mb-2">Thank You! 🎉</h2>
-                    <p className="text-surface-500 dark:text-surface-400 mb-2">Your contribution of <span className="font-semibold text-primary-600 dark:text-primary-400">{formatCurrency(parseFloat(amount))}</span> has been received.</p>
-                    <p className="text-sm text-surface-400 dark:text-surface-500 mb-8">The gift fund "{fund.title}" is now {calculateProgress(fund.collected, fund.target)}% funded!</p>
+                    <h2 className="text-2xl font-bold text-surface-900 dark:text-white mb-2">Payment Submitted</h2>
+                    <p className="text-surface-500 dark:text-surface-400 mb-2">Your contribution of <span className="font-semibold text-primary-600 dark:text-primary-400">{formatCurrency(parseFloat(amount))}</span> has been recorded successfully.</p>
+                    <p className="text-sm text-surface-400 dark:text-surface-500 mb-8">Your receipt has been sent to your registered email for transaction ID <span className="font-medium">{transactionId}</span>.</p>
                     <div className="flex flex-col gap-3">
                         <button onClick={() => navigate(`/fund/${fund.id}`)} className="w-full py-3 gradient-bg text-white font-semibold rounded-xl shadow-lg shadow-primary-500/25">View Fund</button>
                         <button onClick={() => navigate('/dashboard')} className="w-full py-3 bg-surface-100 dark:bg-surface-800 text-surface-700 dark:text-surface-300 font-semibold rounded-xl">Go to Dashboard</button>
@@ -95,6 +136,7 @@ export default function Contribute() {
                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white dark:bg-surface-800/50 rounded-2xl border border-surface-200 dark:border-surface-700/50 p-6 mb-6 shadow-sm">
                     <h2 className="text-lg font-semibold text-surface-900 dark:text-white mb-1">{fund.title}</h2>
                     <p className="text-sm text-surface-500 dark:text-surface-400 mb-4">{formatCurrency(fund.collected)} raised of {formatCurrency(fund.target)} goal</p>
+                    <p className="text-sm text-primary-600 dark:text-primary-400 mb-4">Per-member share: {formatCurrency(shareAmount)} ({fund.expectedMembers || 1} members)</p>
                     <div className="w-full h-3 bg-surface-200 dark:bg-surface-700 rounded-full overflow-hidden">
                         <div className="h-full rounded-full gradient-bg transition-all duration-500" style={{ width: `${progress}%` }} />
                     </div>
@@ -113,7 +155,7 @@ export default function Contribute() {
                         <label className="flex items-center gap-2 text-sm font-medium text-surface-700 dark:text-surface-300 mb-2"><HiOutlineCurrencyDollar className="w-4 h-4" />Amount</label>
                         <div className="flex gap-2 mb-3">
                             {presetAmounts.map(pa => (
-                                <button key={pa} type="button" onClick={() => { setAmount(String(pa)); setErrors(p => ({ ...p, amount: null })); }} className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${String(pa) === amount ? 'gradient-bg text-white shadow-md' : 'bg-surface-100 dark:bg-surface-800 text-surface-600 dark:text-surface-400 hover:bg-surface-200 dark:hover:bg-surface-700'}`}>${pa}</button>
+                                <button key={pa} type="button" onClick={() => { setAmount(String(pa)); setErrors(p => ({ ...p, amount: null })); }} className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${String(pa) === amount ? 'gradient-bg text-white shadow-md' : 'bg-surface-100 dark:bg-surface-800 text-surface-600 dark:text-surface-400 hover:bg-surface-200 dark:hover:bg-surface-700'}`}>₹{pa}</button>
                             ))}
                         </div>
                         <input type="number" placeholder="Custom amount" min="1" step="0.01" value={amount} onChange={(e) => { setAmount(e.target.value); setErrors(p => ({ ...p, amount: null })); }} className={`w-full px-4 py-3 bg-surface-50 dark:bg-surface-900 border rounded-xl text-surface-900 dark:text-white placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/50 transition-all ${errors.amount ? 'border-red-400' : 'border-surface-200 dark:border-surface-700'}`} />
@@ -121,15 +163,39 @@ export default function Contribute() {
                     </div>
 
                     <div>
-                        <label className="flex items-center gap-2 text-sm font-medium text-surface-700 dark:text-surface-300 mb-2"><HiOutlineCreditCard className="w-4 h-4" />Payment Method</label>
-                        <div className="grid grid-cols-3 gap-2">
-                            {paymentMethods.map(pm => (
-                                <button key={pm.id} type="button" onClick={() => setPaymentMethod(pm.id)} className={`p-3 rounded-xl text-center transition-all ${paymentMethod === pm.id ? 'bg-primary-50 dark:bg-primary-900/20 border-2 border-primary-500' : 'bg-surface-50 dark:bg-surface-900 border border-surface-200 dark:border-surface-700 hover:border-primary-300'}`}>
-                                    <span className="text-xl block mb-1">{pm.icon}</span>
-                                    <span className="text-xs text-surface-600 dark:text-surface-400">{pm.label}</span>
-                                </button>
-                            ))}
-                        </div>
+                        <p className="text-sm text-surface-600 dark:text-surface-300 bg-surface-50 dark:bg-surface-900 border border-surface-200 dark:border-surface-700 rounded-xl px-4 py-3">
+                            Pay using scanner or UPI ID after submitting your contribution.
+                        </p>
+                        <button
+                            type="button"
+                            onClick={handlePhonePePay}
+                            disabled={sendingLink}
+                            className="mt-3 w-full py-3 bg-[#5f259f] text-white font-semibold rounded-xl disabled:opacity-60"
+                        >
+                            {sendingLink ? 'Preparing payment...' : `Pay ${formatCurrency(shareAmount)} via PhonePe + Email Link`}
+                        </button>
+                    </div>
+
+                    <div>
+                        <label className="flex items-center gap-2 text-sm font-medium text-surface-700 dark:text-surface-300 mb-2">UPI Transaction ID</label>
+                        <input
+                            type="text"
+                            placeholder="Enter UPI transaction/reference ID"
+                            value={transactionId}
+                            onChange={(e) => { setTransactionId(e.target.value); setErrors(p => ({ ...p, transactionId: null })); }}
+                            className={`w-full px-4 py-3 bg-surface-50 dark:bg-surface-900 border rounded-xl text-surface-900 dark:text-white placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/50 transition-all ${errors.transactionId ? 'border-red-400' : 'border-surface-200 dark:border-surface-700'}`}
+                        />
+                        {errors.transactionId && <p className="text-red-500 text-sm mt-1.5">{errors.transactionId}</p>}
+                    </div>
+
+                    <div>
+                        <label className="flex items-center gap-2 text-sm font-medium text-surface-700 dark:text-surface-300 mb-2">Payment Screenshot (optional)</label>
+                        <input
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp"
+                            onChange={(e) => setScreenshotFile(e.target.files?.[0] || null)}
+                            className="w-full px-4 py-3 bg-surface-50 dark:bg-surface-900 border border-surface-200 dark:border-surface-700 rounded-xl text-surface-700 dark:text-surface-300"
+                        />
                     </div>
 
                     <motion.button type="submit" disabled={processing} whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }} className="w-full py-4 gradient-bg text-white font-semibold rounded-xl shadow-lg shadow-primary-500/25 hover:shadow-primary-500/40 transition-all duration-200 text-lg disabled:opacity-50">

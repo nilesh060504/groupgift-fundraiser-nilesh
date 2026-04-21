@@ -6,6 +6,7 @@ import { useFunds } from '../context/FundContext';
 import FundCard from '../components/FundCard';
 import { CardSkeleton } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
+import { formatCurrency } from '../utils/helpers';
 
 export default function Dashboard() {
     const { funds, loading } = useFunds();
@@ -100,7 +101,7 @@ export default function Dashboard() {
                         { label: 'Total Funds', value: funds.length, color: 'text-primary-600 dark:text-primary-400' },
                         { label: 'Active', value: funds.filter(f => f.status === 'active').length, color: 'text-emerald-600 dark:text-emerald-400' },
                         { label: 'Completed', value: funds.filter(f => f.status === 'completed').length, color: 'text-accent-600 dark:text-accent-400' },
-                        { label: 'Total Raised', value: `$${funds.reduce((sum, f) => sum + f.collected, 0).toLocaleString()}`, color: 'text-amber-600 dark:text-amber-400' },
+                        { label: 'Total Raised', value: formatCurrency(funds.reduce((sum, f) => sum + f.collected, 0)), color: 'text-amber-600 dark:text-amber-400' },
                     ].map((stat, i) => (
                         <div key={i} className="bg-white dark:bg-surface-800/50 rounded-xl border border-surface-200 dark:border-surface-700/50 p-4">
                             <p className="text-xs text-surface-500 dark:text-surface-400 mb-1">{stat.label}</p>

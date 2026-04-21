@@ -2,18 +2,24 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
-import { HiOutlineGift, HiOutlineCalendar, HiOutlineCurrencyDollar, HiOutlineDocumentText, HiOutlineClipboard, HiOutlineLink } from 'react-icons/hi';
+import { HiOutlineGift, HiOutlineCalendar, HiOutlineCurrencyDollar, HiOutlineDocumentText, HiOutlineClipboard, HiOutlineLink, HiOutlineUserGroup } from 'react-icons/hi';
 import { useFunds } from '../context/FundContext';
+import { useAuth } from '../context/AuthContext';
 import { copyToClipboard, generateShareLink } from '../utils/helpers';
 
 export default function CreateFund() {
     const navigate = useNavigate();
     const { createFund } = useFunds();
+    const { isAuthenticated } = useAuth();
 
     const [formData, setFormData] = useState({
         title: '',
         description: '',
+        groupName: '',
+        memberEmails: '',
+        selectedEmails: '',
         target: '',
+        expectedMembers: '',
         deadline: '',
     });
 
@@ -24,7 +30,18 @@ export default function CreateFund() {
         const newErrors = {};
         if (!formData.title.trim()) newErrors.title = 'Fund title is required';
         if (!formData.description.trim()) newErrors.description = 'Description is required';
+        const memberEmails = formData.memberEmails
+            .split(',')
+            .map((e) => e.trim().toLowerCase())
+            .filter(Boolean);
+        const selectedEmails = formData.selectedEmails
+            .split(',')
+            .map((e) => e.trim().toLowerCase())
+            .filter(Boolean);
+        if (memberEmails.some((e) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e))) newErrors.memberEmails = 'Enter valid member emails (comma-separated)';
+        if (selectedEmails.some((e) => !memberEmails.includes(e))) newErrors.selectedEmails = 'Selected emails must be part of member emails';
         if (!formData.target || parseFloat(formData.target) <= 0) newErrors.target = 'Enter a valid target amount';
+        if (formData.expectedMembers && parseInt(formData.expectedMembers, 10) <= 0) newErrors.expectedMembers = 'Enter valid member count';
         if (!formData.deadline) newErrors.deadline = 'Deadline is required';
         else if (new Date(formData.deadline) <= new Date()) newErrors.deadline = 'Deadline must be in the future';
         setErrors(newErrors);
@@ -38,17 +55,36 @@ export default function CreateFund() {
         }
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         if (!validate()) return;
+        const memberEmails = formData.memberEmails
+            .split(',')
+            .map((e) => e.trim().toLowerCase())
+            .filter(Boolean);
+        const selectedEmails = formData.selectedEmails
+            .split(',')
+            .map((e) => e.trim().toLowerCase())
+            .filter(Boolean);
 
-        const fund = createFund({
-            ...formData,
-            target: parseFloat(formData.target),
-        });
-
-        setCreated(fund);
-        toast.success('Fund created successfully! 🎉');
+        try {
+            if (!isAuthenticated) {
+                toast.error('Please login to create a fund');
+                navigate('/login', { state: { from: '/create' } });
+                return;
+            }
+            const fund = await createFund({
+                ...formData,
+                members: memberEmails.map((email) => ({ email })),
+                selectedContributorEmails: selectedEmails,
+                target: parseFloat(formData.target),
+                expectedMembers: formData.expectedMembers ? parseInt(formData.expectedMembers, 10) : memberEmails.length || 1,
+            });
+            setCreated(fund);
+            toast.success('Fund created successfully! 🎉');
+        } catch (err) {
+            toast.error(err.response?.data?.message || 'Failed to create fund');
+        }
     };
 
     const handleCopyLink = () => {
@@ -100,7 +136,7 @@ export default function CreateFund() {
                             <button
                                 onClick={() => {
                                     setCreated(null);
-                                    setFormData({ title: '', description: '', target: '', deadline: '' });
+                                    setFormData({ title: '', description: '', groupName: '', memberEmails: '', selectedEmails: '', target: '', expectedMembers: '', deadline: '' });
                                 }}
                                 className="flex-1 px-5 py-3 bg-surface-100 dark:bg-surface-800 text-surface-700 dark:text-surface-300 font-semibold rounded-xl hover:bg-surface-200 dark:hover:bg-surface-700 transition-colors"
                             >
@@ -174,12 +210,56 @@ export default function CreateFund() {
                         )}
                     </div>
 
+                    <div>
+                        <label className="flex items-center gap-2 text-sm font-medium text-surface-700 dark:text-surface-300 mb-2">
+                            <HiOutlineUserGroup className="w-4 h-4" />
+                            Fund Group Name (optional)
+                        </label>
+                        <input
+                            type="text"
+                            placeholder="e.g., Team Marketing"
+                            value={formData.groupName}
+                            onChange={(e) => handleChange('groupName', e.target.value)}
+                            className="w-full px-4 py-3 bg-surface-50 dark:bg-surface-900 border border-surface-200 dark:border-surface-700 rounded-xl text-surface-900 dark:text-white placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/50"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="flex items-center gap-2 text-sm font-medium text-surface-700 dark:text-surface-300 mb-2">
+                            <HiOutlineUserGroup className="w-4 h-4" />
+                            Member Emails (comma separated)
+                        </label>
+                        <textarea
+                            rows={3}
+                            placeholder="a@example.com, b@example.com"
+                            value={formData.memberEmails}
+                            onChange={(e) => handleChange('memberEmails', e.target.value)}
+                            className={`w-full px-4 py-3 bg-surface-50 dark:bg-surface-900 border rounded-xl text-surface-900 dark:text-white placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/50 transition-all resize-none ${errors.memberEmails ? 'border-red-400 dark:border-red-500' : 'border-surface-200 dark:border-surface-700'}`}
+                        />
+                        {errors.memberEmails && <p className="text-red-500 text-sm mt-1.5">{errors.memberEmails}</p>}
+                    </div>
+
+                    <div>
+                        <label className="flex items-center gap-2 text-sm font-medium text-surface-700 dark:text-surface-300 mb-2">
+                            <HiOutlineUserGroup className="w-4 h-4" />
+                            Selected Contributors (subset emails)
+                        </label>
+                        <textarea
+                            rows={2}
+                            placeholder="a@example.com"
+                            value={formData.selectedEmails}
+                            onChange={(e) => handleChange('selectedEmails', e.target.value)}
+                            className={`w-full px-4 py-3 bg-surface-50 dark:bg-surface-900 border rounded-xl text-surface-900 dark:text-white placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/50 transition-all resize-none ${errors.selectedEmails ? 'border-red-400 dark:border-red-500' : 'border-surface-200 dark:border-surface-700'}`}
+                        />
+                        {errors.selectedEmails && <p className="text-red-500 text-sm mt-1.5">{errors.selectedEmails}</p>}
+                    </div>
+
                     {/* Target & Deadline */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                             <label className="flex items-center gap-2 text-sm font-medium text-surface-700 dark:text-surface-300 mb-2">
                                 <HiOutlineCurrencyDollar className="w-4 h-4" />
-                                Target Amount ($)
+                                Target Amount (₹)
                             </label>
                             <input
                                 type="number"
@@ -193,6 +273,25 @@ export default function CreateFund() {
                             />
                             {errors.target && (
                                 <p className="text-red-500 text-sm mt-1.5">{errors.target}</p>
+                            )}
+                        </div>
+                        <div>
+                            <label className="flex items-center gap-2 text-sm font-medium text-surface-700 dark:text-surface-300 mb-2">
+                                <HiOutlineUserGroup className="w-4 h-4" />
+                                Number of Members (optional override)
+                            </label>
+                            <input
+                                type="number"
+                                placeholder="10"
+                                min="1"
+                                step="1"
+                                value={formData.expectedMembers}
+                                onChange={(e) => handleChange('expectedMembers', e.target.value)}
+                                className={`w-full px-4 py-3 bg-surface-50 dark:bg-surface-900 border rounded-xl text-surface-900 dark:text-white placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/50 transition-all ${errors.expectedMembers ? 'border-red-400 dark:border-red-500' : 'border-surface-200 dark:border-surface-700 focus:border-primary-500'
+                                    }`}
+                            />
+                            {errors.expectedMembers && (
+                                <p className="text-red-500 text-sm mt-1.5">{errors.expectedMembers}</p>
                             )}
                         </div>
 
